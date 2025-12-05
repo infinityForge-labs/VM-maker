@@ -735,4 +735,6 @@ main_menu() {
                 print_status "ERROR" "Invalid option"
                 sleep 1
                 ;;
-esac
+         esac
+    done
+}
