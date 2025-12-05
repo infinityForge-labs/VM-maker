@@ -5,6 +5,13 @@ set -euo pipefail
 # Enhanced Multi-VM Manager Pro
 # =============================
 
+# Configuration
+readonly VM_DIR="${HOME}/vms"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Create VM directory if it doesn't exist
+mkdir -p "$VM_DIR"
+
 # Color definitions
 readonly RED='\033[1;31m'
 readonly GREEN='\033[1;32m'
@@ -19,6 +26,15 @@ readonly BOLD='\033[1m'
 
 # Animation speed
 readonly ANIM_SPEED=0.02
+
+# OS Options
+declare -A OS_OPTIONS=(
+    ["Ubuntu 22.04 LTS"]="Ubuntu|jammy|https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img|ubuntu|ubuntu|ubuntu|false"
+    ["Ubuntu 20.04 LTS"]="Ubuntu|focal|https://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img|ubuntu|ubuntu|ubuntu|false"
+    ["Debian 12"]="Debian|bookworm|https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2|debian|debian|debian|false"
+    ["Debian 11"]="Debian|bullseye|https://cloud.debian.org/images/cloud/bullseye/latest/debian-11-generic-amd64.qcow2|debian|debian|debian|false"
+    ["Proxmox VE"]="Proxmox|pve|https://download.proxmox.com/iso/proxmox-ve_8.1-2.iso|pve|root|password|true"
+)
 
 # Function to animate text
 animate_text() {
@@ -186,9 +202,12 @@ load_vm_config() {
     local config_file="$VM_DIR/$vm_name.conf"
     
     if [[ -f "$config_file" ]]; then
+        # Clear previous VM variables
         unset VM_NAME OS_TYPE CODENAME IMG_URL HOSTNAME USERNAME PASSWORD
         unset DISK_SIZE MEMORY CPUS SSH_PORT GUI_MODE PORT_FORWARDS IMG_FILE SEED_FILE CREATED
         unset IS_ISO
+        
+        # Load new configuration
         source "$config_file"
         return 0
     else
@@ -432,6 +451,10 @@ EOF
         fi
     else
         print_status "INFO" "ISO mode detected - skipping cloud-init"
+        # Create disk if it doesn't exist for ISO-based VMs
+        if [[ ! -f "$VM_DIR/${VM_NAME}-disk.img" ]]; then
+            qemu-img create -f qcow2 "$VM_DIR/${VM_NAME}-disk.img" "$DISK_SIZE"
+        fi
     fi
 }
 
@@ -471,10 +494,6 @@ start_vm() {
                 -boot order=d
                 -drive "file=$VM_DIR/${VM_NAME}-disk.img,format=qcow2,if=virtio"
             )
-            # Create disk if it doesn't exist
-            if [[ ! -f "$VM_DIR/${VM_NAME}-disk.img" ]]; then
-                qemu-img create -f qcow2 "$VM_DIR/${VM_NAME}-disk.img" "$DISK_SIZE"
-            fi
         else
             # Cloud image mode
             qemu_cmd+=(
@@ -626,6 +645,76 @@ stop_vm() {
     fi
 }
 
+# Function to edit VM configuration
+edit_vm_config() {
+    local vm_name=$1
+    
+    if load_vm_config "$vm_name"; then
+        display_header
+        animate_text "✏️  Editing VM Configuration: $vm_name" "$CYAN"
+        draw_separator "═"
+        echo
+        
+        # Show current values
+        echo -e "${BOLD}${WHITE}Current Configuration${RESET}"
+        draw_separator "─"
+        echo -e "  ${CYAN}Memory:${RESET}       ${MEMORY} MB"
+        echo -e "  ${CYAN}CPUs:${RESET}         $CPUS"
+        echo -e "  ${CYAN}SSH Port:${RESET}     $SSH_PORT"
+        echo -e "  ${CYAN}GUI Mode:${RESET}     $GUI_MODE"
+        echo -e "  ${CYAN}Port Forwards:${RESET} $PORT_FORWARDS"
+        echo
+        
+        draw_separator
+        echo -e "${BOLD}${WHITE}New Configuration${RESET}"
+        draw_separator "─"
+        
+        # Get new values
+        local new_memory new_cpus new_ssh_port new_gui_mode new_port_forwards
+        
+        read -p "$(print_status "INPUT" "Memory in MB [$MEMORY]: ")" new_memory
+        new_memory="${new_memory:-$MEMORY}"
+        
+        read -p "$(print_status "INPUT" "Number of CPUs [$CPUS]: ")" new_cpus
+        new_cpus="${new_cpus:-$CPUS}"
+        
+        read -p "$(print_status "INPUT" "SSH Port [$SSH_PORT]: ")" new_ssh_port
+        new_ssh_port="${new_ssh_port:-$SSH_PORT}"
+        
+        read -p "$(print_status "INPUT" "Enable GUI mode? (y/n) [$([ "$GUI_MODE" = true ] && echo "y" || echo "n")]: ")" new_gui_input
+        if [[ "$new_gui_input" =~ ^[Yy]$ ]]; then 
+            new_gui_mode=true
+        elif [[ "$new_gui_input" =~ ^[Nn]$ ]]; then
+            new_gui_mode=false
+        else
+            new_gui_mode="$GUI_MODE"
+        fi
+        
+        read -p "$(print_status "INPUT" "Port forwards (e.g., 8080:80) [$PORT_FORWARDS]: ")" new_port_forwards
+        new_port_forwards="${new_port_forwards:-$PORT_FORWARDS}"
+        
+        # Validate new values
+        if validate_input "number" "$new_memory" && \
+           validate_input "number" "$new_cpus" && \
+           validate_input "port" "$new_ssh_port"; then
+            
+            # Update configuration
+            MEMORY="$new_memory"
+            CPUS="$new_cpus"
+            SSH_PORT="$new_ssh_port"
+            GUI_MODE="$new_gui_mode"
+            PORT_FORWARDS="$new_port_forwards"
+            
+            save_vm_config
+            print_status "SUCCESS" "VM configuration updated"
+        else
+            print_status "ERROR" "Invalid configuration values"
+        fi
+        
+        sleep 2
+    fi
+}
+
 # Main menu function
 main_menu() {
     while true; do
@@ -710,8 +799,13 @@ main_menu() {
                 ;;
             5)
                 if [ $vm_count -gt 0 ]; then
-                    print_status "INFO" "Configuration editing - coming soon!"
-                    sleep 1
+                    read -p "$(print_status "INPUT" "Enter VM number: ")" vm_num
+                    if [[ "$vm_num" =~ ^[0-9]+$ ]] && [ "$vm_num" -ge 1 ] && [ "$vm_num" -le $vm_count ]; then
+                        edit_vm_config "${vms[$((vm_num-1))]}"
+                    else
+                        print_status "ERROR" "Invalid selection"
+                        sleep 1
+                    fi
                 fi
                 ;;
             6)
@@ -738,4 +832,7 @@ main_menu() {
          esac
     done
 }
+
+# Initialize
+check_dependencies
 main_menu
