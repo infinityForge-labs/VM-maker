@@ -215,6 +215,48 @@ EOF
     print_status "SUCCESS" "Configuration saved"
 }
 
+# Function to initialize OS options
+init_os_options() {
+    # Define OS options as indexed array
+    OS_NAMES=(
+        "Ubuntu 20.04 LTS"
+        "Ubuntu 22.04 LTS"
+        "Ubuntu 24.04 LTS"
+        "Debian 11 (Bullseye)"
+        "Debian 12 (Bookworm)"
+        "Fedora 39"
+        "Fedora 40"
+        "CentOS Stream 9"
+        "AlmaLinux 8"
+        "AlmaLinux 9"
+        "Rocky Linux 8"
+        "Rocky Linux 9"
+        "openSUSE Leap 15.5"
+        "Arch Linux"
+        "Proxmox VE 9.1"
+        "Kali Linux"
+    )
+    
+    OS_DATA=(
+        "ubuntu|focal|https://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img|ubuntu20|ubuntu|ubuntu|false|c"
+        "ubuntu|jammy|https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img|ubuntu22|ubuntu|ubuntu|false|c"
+        "ubuntu|noble|https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img|ubuntu24|ubuntu|ubuntu|false|c"
+        "debian|bullseye|https://cloud.debian.org/images/cloud/bullseye/latest/debian-11-generic-amd64.qcow2|debian11|debian|debian|false|c"
+        "debian|bookworm|https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2|debian12|debian|debian|false|c"
+        "fedora|39|https://download.fedoraproject.org/pub/fedora/linux/releases/39/Cloud/x86_64/images/Fedora-Cloud-Base-39-1.5.x86_64.qcow2|fedora39|fedora|fedora|false|c"
+        "fedora|40|https://download.fedoraproject.org/pub/fedora/linux/releases/40/Cloud/x86_64/images/Fedora-Cloud-Base-40-1.14.x86_64.qcow2|fedora40|fedora|fedora|false|c"
+        "centos|stream9|https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2|centos9|centos|centos|false|c"
+        "almalinux|8|https://repo.almalinux.org/almalinux/8/cloud/x86_64/images/AlmaLinux-8-GenericCloud-latest.x86_64.qcow2|almalinux8|alma|alma|false|c"
+        "almalinux|9|https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2|almalinux9|alma|alma|false|c"
+        "rockylinux|8|https://download.rockylinux.org/pub/rocky/8/images/x86_64/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2|rocky8|rocky|rocky|false|c"
+        "rockylinux|9|https://download.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2|rocky9|rocky|rocky|false|c"
+        "opensuse|leap15.5|https://download.opensuse.org/distribution/leap/15.5/appliances/openSUSE-Leap-15.5-Minimal-VM.x86_64-Cloud.qcow2|opensuse15|opensuse|opensuse|false|c"
+        "arch|rolling|https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2|archlinux|arch|arch|false|c"
+        "proxmox|9|https://enterprise.proxmox.com/iso/proxmox-ve_9.1-1.iso|proxmox9|root|proxmox|true|d"
+        "kali|latest|https://cdimage.kali.org/kali-2024.3/kali-linux-2024.3-installer-amd64.iso|kali|kali|kali|true|d"
+    )
+}
+
 # Function to create new VM
 create_new_vm() {
     display_header
@@ -222,28 +264,21 @@ create_new_vm() {
     draw_separator "═"
     echo
     
-    # OS Selection with sorted and categorized display
+    # OS Selection
     print_status "INFO" "Available Operating Systems:"
     echo
     
-    local os_options=()
-    local i=1
-    
-    # Sort OS names for better display
-    local sorted_os=($(for os in "${!OS_OPTIONS[@]}"; do echo "$os"; done | sort))
-    
-    for os in "${sorted_os[@]}"; do
-        echo -e "  ${CYAN}${BOLD}$i)${RESET} ${WHITE}$os${RESET}"
-        os_options[$i]="$os"
-        ((i++))
+    for i in "${!OS_NAMES[@]}"; do
+        local num=$((i + 1))
+        printf "  ${CYAN}${BOLD}%2d)${RESET} ${WHITE}%s${RESET}\n" "$num" "${OS_NAMES[$i]}"
     done
     echo
     
     while true; do
-        read -p "$(print_status "INPUT" "Select OS (1-${#sorted_os[@]}): ")" choice
-        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#sorted_os[@]} ]; then
-            local os="${os_options[$choice]}"
-            IFS='|' read -r OS_TYPE CODENAME IMG_URL DEFAULT_HOSTNAME DEFAULT_USERNAME DEFAULT_PASSWORD IS_ISO BOOT_ORDER <<< "${OS_OPTIONS[$os]}"
+        read -p "$(print_status "INPUT" "Select OS (1-${#OS_NAMES[@]}): ")" choice
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#OS_NAMES[@]} ]; then
+            local idx=$((choice - 1))
+            IFS='|' read -r OS_TYPE CODENAME IMG_URL DEFAULT_HOSTNAME DEFAULT_USERNAME DEFAULT_PASSWORD IS_ISO BOOT_ORDER <<< "${OS_DATA[$idx]}"
             IS_ISO="${IS_ISO:-false}"
             BOOT_ORDER="${BOOT_ORDER:-c}"
             break
@@ -814,38 +849,8 @@ check_dependencies
 VM_DIR="${VM_DIR:-$HOME/vms}"
 mkdir -p "$VM_DIR"
 
-# Supported OS list - Extended with more options
-declare -A OS_OPTIONS=(
-    # Ubuntu Variants
-    ["Ubuntu 22.04 LTS"]="ubuntu|jammy|https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img|ubuntu22|ubuntu|ubuntu|false|c"
-    ["Ubuntu 24.04 LTS"]="ubuntu|noble|https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img|ubuntu24|ubuntu|ubuntu|false|c"
-    ["Ubuntu 20.04 LTS"]="ubuntu|focal|https://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img|ubuntu20|ubuntu|ubuntu|false|c"
-    
-    # Debian Variants
-    ["Debian 11 (Bullseye)"]="debian|bullseye|https://cloud.debian.org/images/cloud/bullseye/latest/debian-11-generic-amd64.qcow2|debian11|debian|debian|false|c"
-    ["Debian 12 (Bookworm)"]="debian|bookworm|https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2|debian12|debian|debian|false|c"
-    
-    # Fedora Variants
-    ["Fedora 40"]="fedora|40|https://download.fedoraproject.org/pub/fedora/linux/releases/40/Cloud/x86_64/images/Fedora-Cloud-Base-40-1.14.x86_64.qcow2|fedora40|fedora|fedora|false|c"
-    ["Fedora 39"]="fedora|39|https://download.fedoraproject.org/pub/fedora/linux/releases/39/Cloud/x86_64/images/Fedora-Cloud-Base-39-1.5.x86_64.qcow2|fedora39|fedora|fedora|false|c"
-    
-    # RHEL-based Distributions
-    ["CentOS Stream 9"]="centos|stream9|https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2|centos9|centos|centos|false|c"
-    ["AlmaLinux 9"]="almalinux|9|https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2|almalinux9|alma|alma|false|c"
-    ["Rocky Linux 9"]="rockylinux|9|https://download.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2|rocky9|rocky|rocky|false|c"
-    ["AlmaLinux 8"]="almalinux|8|https://repo.almalinux.org/almalinux/8/cloud/x86_64/images/AlmaLinux-8-GenericCloud-latest.x86_64.qcow2|almalinux8|alma|alma|false|c"
-    ["Rocky Linux 8"]="rockylinux|8|https://download.rockylinux.org/pub/rocky/8/images/x86_64/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2|rocky8|rocky|rocky|false|c"
-    
-    # OpenSUSE
-    ["openSUSE Leap 15.5"]="opensuse|leap15.5|https://download.opensuse.org/distribution/leap/15.5/appliances/openSUSE-Leap-15.5-Minimal-VM.x86_64-Cloud.qcow2|opensuse15|opensuse|opensuse|false|c"
-    
-    # Arch Linux
-    ["Arch Linux"]="arch|rolling|https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2|archlinux|arch|arch|false|c"
-    
-    # Special Purpose / Installers
-    ["Proxmox VE 9.1"]="proxmox|9|https://enterprise.proxmox.com/iso/proxmox-ve_9.1-1.iso|proxmox9|root|proxmox|true|d"
-    ["Kali Linux"]="kali|latest|https://cdimage.kali.org/kali-2024.3/kali-linux-2024.3-qemu-amd64.7z|kali|kali|kali|false|c"
-)
+# Initialize OS options
+init_os_options
 
 # Display startup banner
 clear
@@ -855,10 +860,17 @@ cat << "EOF"
     ║                                                           ║
     ║     Welcome to InfinityForge VM Manager Pro v2.0          ║
     ║                                                           ║
-    ║     Supporting 16+ Operating Systems                      ║
-    ║     • Ubuntu • Debian • Fedora • CentOS                   ║
-    ║     • AlmaLinux • Rocky Linux • openSUSE                  ║
-    ║     • Arch Linux • Proxmox VE • Kali Linux                ║
+    ║     Supporting 16 Operating Systems:                      ║
+    ║     • Ubuntu (20.04, 22.04, 24.04)                        ║
+    ║     • Debian (11, 12)                                     ║
+    ║     • Fedora (39, 40)                                     ║
+    ║     • CentOS Stream 9                                     ║
+    ║     • AlmaLinux (8, 9)                                    ║
+    ║     • Rocky Linux (8, 9)                                  ║
+    ║     • openSUSE Leap 15.5                                  ║
+    ║     • Arch Linux                                          ║
+    ║     • Proxmox VE 9.1                                      ║
+    ║     • Kali Linux                                          ║
     ║                                                           ║
     ╚═══════════════════════════════════════════════════════════╝
 EOF
